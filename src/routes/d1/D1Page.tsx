@@ -198,6 +198,22 @@ async function generatePostcardCanvas(imgSrc: string, oid: string, date: string,
   });
 }
 
+function dataURLtoBlob(dataUrl: string): Blob {
+  try {
+    const arr = dataUrl.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch {
+    return new Blob([], { type: 'image/jpeg' });
+  }
+}
+
 /** 移动端专属扫码下载视图（游客手机扫码直接呈现下载页） */
 function MobilePostcardDownloadView() {
   const params = new URLSearchParams(window.location.search);
@@ -212,6 +228,8 @@ function MobilePostcardDownloadView() {
 
   const [downloading, setDownloading] = useState(false);
   const [compositeUrl, setCompositeUrl] = useState('');
+  const [highlightCard, setHighlightCard] = useState(false);
+  const [showWeChatGuide, setShowWeChatGuide] = useState(false);
 
   // 页面加载时自动预合成 Canvas 高清卡片
   useEffect(() => {
@@ -225,13 +243,52 @@ function MobilePostcardDownloadView() {
     setDownloading(true);
     try {
       const dataUrl = compositeUrl || await generatePostcardCanvas(imgSrc, oid, date, no, cat.title);
-      if (dataUrl) {
+      if (!dataUrl) return;
+
+      const filename = `深汕气象天文馆_第${no}号观测者宇宙坐标卡_${date}.jpg`;
+      const blob = dataURLtoBlob(dataUrl);
+
+      // 1. 如果在微信内置浏览器内，弹出贴心指引引导长按保存
+      const isWeChat = typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent);
+      if (isWeChat) {
+        setShowWeChatGuide(true);
+        setHighlightCard(true);
+        setTimeout(() => setHighlightCard(false), 3500);
+        return;
+      }
+
+      // 2. 现代手机浏览器 Web Share API（iOS Safari / 现代 Android Chrome 直接呼出系统「存储图像 / 保存到相册」）
+      if (typeof navigator !== 'undefined' && navigator.canShare && typeof File !== 'undefined') {
+        try {
+          const file = new File([blob], filename, { type: 'image/jpeg' });
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: '深汕气象天文馆 宇宙坐标卡',
+              text: `你是深汕气象天文馆第 ${no} 号观测者`
+            });
+            return;
+          }
+        } catch (err: any) {
+          if (err.name === 'AbortError') return;
+          console.warn('Web Share 异常，回退至 Blob 下载', err);
+        }
+      }
+
+      // 3. 通用 Blob 对象下载（适用于各类 Android 浏览器、Edge、电脑端）
+      try {
+        const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `深汕气象天文馆_第${no}号观测者宇宙坐标卡_${date}.jpg`;
+        a.href = blobUrl;
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 20000);
+      } catch (e) {
+        setShowWeChatGuide(true);
+        setHighlightCard(true);
+        setTimeout(() => setHighlightCard(false), 3500);
       }
     } finally {
       setDownloading(false);
@@ -251,16 +308,34 @@ function MobilePostcardDownloadView() {
 
       <div style={{
         width: '100%', maxWidth: '440px', borderRadius: '16px', overflow: 'hidden',
-        background: 'rgba(10,12,24,0.92)', border: '1px solid rgba(201,169,110,0.3)',
-        boxShadow: '0 18px 45px rgba(0,0,0,0.7), 0 0 35px rgba(140,100,255,0.15)',
-        marginBottom: '20px'
+        background: 'rgba(10,12,24,0.92)',
+        border: highlightCard ? '2px solid #ffd76a' : '1px solid rgba(201,169,110,0.3)',
+        boxShadow: highlightCard
+          ? '0 0 35px rgba(255,215,106,0.7), 0 18px 45px rgba(0,0,0,0.8)'
+          : '0 18px 45px rgba(0,0,0,0.7), 0 0 35px rgba(140,100,255,0.15)',
+        transition: 'box-shadow 0.4s ease, border 0.4s ease, transform 0.4s ease',
+        transform: highlightCard ? 'scale(1.02)' : 'scale(1)',
+        marginBottom: '20px', position: 'relative'
       }}>
-        <div style={{ width: '100%', aspectRatio: '3/2', overflow: 'hidden', background: '#000' }}>
+        <div style={{ width: '100%', aspectRatio: '3/2', overflow: 'hidden', background: '#000', position: 'relative' }}>
           <img
             src={compositeUrl || imgSrc}
             alt="宇宙坐标卡"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            style={{
+              width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+              WebkitTouchCallout: 'default'
+            }}
           />
+          {/* 右下角贴心悬浮标签：长按卡片可直接保存 */}
+          <div style={{
+            position: 'absolute', bottom: '10px', right: '10px',
+            background: 'rgba(5, 7, 15, 0.75)', backdropFilter: 'blur(8px)',
+            borderRadius: '20px', padding: '4px 10px',
+            fontSize: '11px', color: '#ffd76a', border: '1px solid rgba(255,215,106,0.35)',
+            pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px'
+          }}>
+            <span>👆</span> 长按卡片保存到相册
+          </div>
         </div>
         {!compositeUrl && (
           <div style={{ padding: '14px 18px' }}>
@@ -285,12 +360,58 @@ function MobilePostcardDownloadView() {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
           }}
         >
-          <span>⤓</span> {downloading ? '正在生成高清卡片...' : '保存 / 下载宇宙坐标卡'}
+          <span>⤓</span> {downloading ? '正在准备高清卡片...' : '保存 / 下载宇宙坐标卡'}
         </button>
         <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.5)', textAlign: 'center', letterSpacing: '0.04em' }}>
-          提示：点击上方按钮直接下载，长按卡片亦可保存到相册
+          提示：微信内或部分手机请直接长按上方卡片保存到相册
         </p>
       </div>
+
+      {/* 微信 / 移动端长按保存引导弹窗 */}
+      {showWeChatGuide && (
+        <div
+          onClick={() => setShowWeChatGuide(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(8px)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: '24px', boxSizing: 'border-box'
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'linear-gradient(145deg, #181d3d, #0d1022)',
+              border: '1px solid rgba(201,169,110,0.5)',
+              borderRadius: '20px', padding: '26px 20px', maxWidth: '340px', width: '100%',
+              boxShadow: '0 20px 50px rgba(0,0,0,0.8), 0 0 30px rgba(201,169,110,0.2)',
+              textAlign: 'center'
+            }}
+          >
+            <div style={{ fontSize: '36px', marginBottom: '10px' }}>👆</div>
+            <h3 style={{ margin: '0 0 10px', fontSize: '18px', color: '#ffd76a', fontWeight: 600, letterSpacing: '0.04em' }}>
+              长按上方卡片即可保存
+            </h3>
+            <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.85)', lineHeight: '1.6', margin: '0 0 14px' }}>
+              受微信及手机安全限制，网页无法直接静默下载图片到相册。<br /><br />
+              请<strong style={{ color: '#ffd76a' }}>【长按上方卡片】</strong>并在弹出的系统菜单中点击<strong style={{ color: '#ffd76a' }}>【保存到手机 / 存储图像】</strong>即可！
+            </p>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginBottom: '18px', background: 'rgba(255,255,255,0.06)', padding: '8px 12px', borderRadius: '8px' }}>
+              💡 也可以点击右上角【···】选择【在浏览器打开】进行自动下载
+            </div>
+            <button
+              onClick={() => setShowWeChatGuide(false)}
+              style={{
+                width: '100%', padding: '12px', borderRadius: '10px', border: 'none',
+                background: 'linear-gradient(135deg, #c9a96e, #e8c36a)',
+                color: '#0d1020', fontSize: '15px', fontWeight: 600, cursor: 'pointer'
+              }}
+            >
+              我知道了
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
