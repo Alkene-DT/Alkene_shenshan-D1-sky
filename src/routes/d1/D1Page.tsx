@@ -225,20 +225,14 @@ function MobilePostcardDownloadView() {
 
   const cat = CATS.find(c => c.key === card) || CATS[0];
   const imgSrc = rawImg || './d1/star/star_半人马座、豺狼座和南十字座.JPG';
+  const { name: imgName } = parseD1File(imgSrc);
 
   const [downloading, setDownloading] = useState(false);
-  const [compositeUrl, setCompositeUrl] = useState('');
   const [highlightCard, setHighlightCard] = useState(false);
   const [showWeChatGuide, setShowWeChatGuide] = useState(false);
 
-  // 页面加载时自动预合成 Canvas 高清卡片，并向大屏发送实时同步信标
+  // 页面加载时自动向大屏发送实时同步信标（只要扫码打开页面，大屏立即 +1，即使只长按保存也会生效）
   useEffect(() => {
-    (async () => {
-      const url = await generatePostcardCanvas(imgSrc, oid, date, no, cat.title);
-      if (url) setCompositeUrl(url);
-    })();
-
-    // 游客手机扫码打开页面时，通知大屏该编号已被手机接引
     try {
       fetch('https://ntfy.sh/shenshan-sky-sync-alkene', {
         method: 'POST',
@@ -246,7 +240,19 @@ function MobilePostcardDownloadView() {
         body: JSON.stringify({ action: 'claim', no: no, time: Date.now() })
       }).catch(() => {});
     } catch {}
-  }, [imgSrc, oid, date, no, cat.title]);
+  }, [no]);
+
+  const handleImgError = useCallback((e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const el = e.currentTarget;
+    const cur = el.src;
+    if (el.dataset.fallback) return;
+    el.dataset.fallback = '1';
+    if (cur.includes('/public/d1/')) {
+      el.src = cur.replace('/public/d1/', '/d1/');
+    } else if (cur.includes('/d1/')) {
+      el.src = cur.replace('/d1/', '/public/d1/');
+    }
+  }, []);
 
   const handleDownload = async () => {
     setDownloading(true);
@@ -260,12 +266,6 @@ function MobilePostcardDownloadView() {
         }).catch(() => {});
       } catch {}
 
-      const dataUrl = compositeUrl || await generatePostcardCanvas(imgSrc, oid, date, no, cat.title);
-      if (!dataUrl) return;
-
-      const filename = `深汕气象天文馆_第${no}号观测者宇宙坐标卡_${date}.jpg`;
-      const blob = dataURLtoBlob(dataUrl);
-
       // 1. 如果在微信内置浏览器内，弹出贴心指引引导长按保存
       const isWeChat = typeof navigator !== 'undefined' && /MicroMessenger/i.test(navigator.userAgent);
       if (isWeChat) {
@@ -275,15 +275,32 @@ function MobilePostcardDownloadView() {
         return;
       }
 
+      // 获取纯净原图的 Blob 对象（无任何水印）
+      let blob: Blob;
+      try {
+        const res = await fetch(imgSrc);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        blob = await res.blob();
+      } catch {
+        const alt = imgSrc.includes('/public/d1/')
+          ? imgSrc.replace('/public/d1/', '/d1/')
+          : (imgSrc.includes('/d1/') ? imgSrc.replace('/d1/', '/public/d1/') : imgSrc);
+        const res = await fetch(alt);
+        blob = await res.blob();
+      }
+
+      const ext = (imgSrc.split('.').pop() || 'jpg').toLowerCase();
+      const filename = `深汕气象天文馆_第${no}号观测者_${imgName || '星空'}.${ext}`;
+
       // 2. 现代手机浏览器 Web Share API（iOS Safari / 现代 Android Chrome 直接呼出系统「存储图像 / 保存到相册」）
       if (typeof navigator !== 'undefined' && navigator.canShare && typeof File !== 'undefined') {
         try {
-          const file = new File([blob], filename, { type: 'image/jpeg' });
+          const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
           if (navigator.canShare({ files: [file] })) {
             await navigator.share({
               files: [file],
-              title: '深汕气象天文馆 宇宙坐标卡',
-              text: `你是深汕气象天文馆第 ${no} 号观测者`
+              title: '深汕气象天文馆 宇宙星空原图',
+              text: `深汕气象天文馆 · 第 ${no} 号观测者专属原图`
             });
             return;
           }
@@ -308,6 +325,11 @@ function MobilePostcardDownloadView() {
         setHighlightCard(true);
         setTimeout(() => setHighlightCard(false), 3500);
       }
+    } catch (err) {
+      console.error('获取原图失败', err);
+      setShowWeChatGuide(true);
+      setHighlightCard(true);
+      setTimeout(() => setHighlightCard(false), 3500);
     } finally {
       setDownloading(false);
     }
@@ -325,48 +347,61 @@ function MobilePostcardDownloadView() {
       </div>
 
       <div style={{
-        width: '100%', maxWidth: '440px', borderRadius: '16px', overflow: 'hidden',
-        background: 'rgba(10,12,24,0.92)',
-        border: highlightCard ? '2px solid #ffd76a' : '1px solid rgba(201,169,110,0.3)',
+        width: '100%', maxWidth: '460px', borderRadius: '18px', overflow: 'hidden',
+        background: 'rgba(12,15,30,0.95)',
+        border: highlightCard ? '2px solid #ffd76a' : '1px solid rgba(201,169,110,0.35)',
         boxShadow: highlightCard
           ? '0 0 35px rgba(255,215,106,0.7), 0 18px 45px rgba(0,0,0,0.8)'
-          : '0 18px 45px rgba(0,0,0,0.7), 0 0 35px rgba(140,100,255,0.15)',
+          : '0 18px 45px rgba(0,0,0,0.7), 0 0 35px rgba(140,100,255,0.12)',
         transition: 'box-shadow 0.4s ease, border 0.4s ease, transform 0.4s ease',
         transform: highlightCard ? 'scale(1.02)' : 'scale(1)',
         marginBottom: '20px', position: 'relative'
       }}>
+        {/* 纯净原始图片展示区（无任何水印遮挡，保留全分辨率纯粹原图） */}
         <div style={{ width: '100%', aspectRatio: '3/2', overflow: 'hidden', background: '#000', position: 'relative' }}>
           <img
-            src={compositeUrl || imgSrc}
-            alt="宇宙坐标卡"
+            src={imgSrc}
+            onError={handleImgError}
+            alt={imgName || "宇宙坐标原图"}
             style={{
               width: '100%', height: '100%', objectFit: 'cover', display: 'block',
               WebkitTouchCallout: 'default'
             }}
           />
-          {/* 右下角贴心悬浮标签：长按卡片可直接保存 */}
+          {/* 右下角悬浮标签：长按图片保存纯净原图 */}
           <div style={{
             position: 'absolute', bottom: '10px', right: '10px',
             background: 'rgba(5, 7, 15, 0.75)', backdropFilter: 'blur(8px)',
-            borderRadius: '20px', padding: '4px 10px',
+            borderRadius: '20px', padding: '5px 12px',
             fontSize: '11px', color: '#ffd76a', border: '1px solid rgba(255,215,106,0.35)',
-            pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '4px'
+            pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '5px'
           }}>
-            <span>👆</span> 长按卡片保存到相册
+            <span>👆</span> 长按图片保存纯净原图
           </div>
         </div>
-        {!compositeUrl && (
-          <div style={{ padding: '14px 18px' }}>
-            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.08em' }}>{oid} / 气象编号 / {date}</div>
-            <div style={{ fontSize: '16px', color: '#f4f7ff', fontWeight: 600, marginTop: '4px' }}>
-              你是 深汕气象天文馆 第<span style={{ color: '#ffd76a' }}>{no}</span>号观测者
-            </div>
-            <div style={{ fontSize: '13px', color: '#c9a96e', marginTop: '6px' }}>{cat.icon} {cat.title}</div>
+
+        {/* 专属纪念信息卡（网页展示丰富信息，不遮挡原图） */}
+        <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(201,169,110,0.2)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '11px', color: '#c9a96e', letterSpacing: '0.08em', fontWeight: 600 }}>
+              ✦ {cat.icon} {cat.title} {imgName ? `· ${imgName}` : ''}
+            </span>
+            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.04em' }}>
+              {oid} / {date}
+            </span>
           </div>
-        )}
+
+          <div style={{ fontSize: '17px', color: '#f4f7ff', fontWeight: 600, letterSpacing: '0.04em' }}>
+            你是 深汕气象天文馆 第<span style={{ color: '#ffd76a', fontSize: '22px', fontWeight: 700, margin: '0 4px' }}>{no}</span>号观测者
+          </div>
+
+          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.6', marginTop: '8px' }}>
+            “穿越浩瀚星河，带走一片属于你的天空。此高清纯净原图由深汕气象天文科普馆为您专属呈现。”
+          </div>
+        </div>
       </div>
 
-      <div style={{ width: '100%', maxWidth: '440px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+      <div style={{ width: '100%', maxWidth: '460px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
         <button
           onClick={handleDownload}
           disabled={downloading}
@@ -378,10 +413,10 @@ function MobilePostcardDownloadView() {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
           }}
         >
-          <span>⤓</span> {downloading ? '正在准备高清卡片...' : '保存 / 下载宇宙坐标卡'}
+          <span>⤓</span> {downloading ? '正在获取高清原图...' : '保存纯净原图到手机'}
         </button>
         <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.5)', textAlign: 'center', letterSpacing: '0.04em' }}>
-          提示：微信内或部分手机请直接长按上方卡片保存到相册
+          提示：微信内或部分手机请直接长按上方图片保存到相册
         </p>
       </div>
 
@@ -408,11 +443,11 @@ function MobilePostcardDownloadView() {
           >
             <div style={{ fontSize: '36px', marginBottom: '10px' }}>👆</div>
             <h3 style={{ margin: '0 0 10px', fontSize: '18px', color: '#ffd76a', fontWeight: 600, letterSpacing: '0.04em' }}>
-              长按上方卡片即可保存
+              长按上方图片即可保存纯净原图
             </h3>
             <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.85)', lineHeight: '1.6', margin: '0 0 14px' }}>
               受微信及手机安全限制，网页无法直接静默下载图片到相册。<br /><br />
-              请<strong style={{ color: '#ffd76a' }}>【长按上方卡片】</strong>并在弹出的系统菜单中点击<strong style={{ color: '#ffd76a' }}>【保存到手机 / 存储图像】</strong>即可！
+              请<strong style={{ color: '#ffd76a' }}>【长按上方图片】</strong>并在弹出的系统菜单中点击<strong style={{ color: '#ffd76a' }}>【保存到手机 / 存储图像】</strong>即可将无水印纯净原图存入手机相册！
             </p>
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginBottom: '18px', background: 'rgba(255,255,255,0.06)', padding: '8px 12px', borderRadius: '8px' }}>
               💡 也可以点击右上角【···】选择【在浏览器打开】进行自动下载
