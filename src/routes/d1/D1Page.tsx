@@ -214,6 +214,81 @@ function dataURLtoBlob(dataUrl: string): Blob {
   }
 }
 
+/** 生成带右下角低调雅致水印的高清图片（保留 100% 原始分辨率，右下角淡色馆名与编号） */
+async function generateSubtleWatermarkImage(imgSrc: string, no: string): Promise<string> {
+  return new Promise((resolve) => {
+    const loadImage = (src: string): Promise<HTMLImageElement> => {
+      return new Promise((res, rej) => {
+        const img = new Image();
+        if (!window.location.protocol.startsWith('file:')) {
+          img.crossOrigin = 'anonymous';
+        }
+        img.onload = () => res(img);
+        img.onerror = () => rej();
+        img.src = src;
+      });
+    };
+
+    (async () => {
+      let img: HTMLImageElement | null = null;
+      try {
+        img = await loadImage(imgSrc);
+      } catch {
+        const alt = imgSrc.includes('/public/d1/')
+          ? imgSrc.replace('/public/d1/', '/d1/')
+          : (imgSrc.includes('/d1/') ? imgSrc.replace('/d1/', '/public/d1/') : imgSrc);
+        try {
+          img = await loadImage(alt);
+        } catch {
+          img = null;
+        }
+      }
+
+      if (!img) return resolve(imgSrc);
+
+      const w = img.naturalWidth || img.width || 1200;
+      const h = img.naturalHeight || img.height || 800;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(imgSrc);
+
+      // 1. 绘制 100% 完整原图（保持原图比例与细节，绝无裁剪遮挡）
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // 2. 右下角微弱雅致水印（馆名 + 观测者编号）
+      // 字号按图片尺寸等比微调（约 2.2% 较小边），低调大方
+      const fontSize = Math.max(14, Math.round(Math.min(w, h) * 0.022));
+      const marginX = Math.round(w * 0.03);
+      const marginY = Math.round(h * 0.03);
+
+      ctx.save();
+      ctx.font = `300 ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+
+      // 柔和暗影保证在浅色或深色星空均能识别
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+      ctx.shadowBlur = Math.max(3, fontSize * 0.18);
+      ctx.shadowOffsetX = 1;
+      ctx.shadowOffsetY = 1;
+
+      // 半透明柔白微水印
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.58)';
+      ctx.fillText(`深汕气象天文科普馆 · No.${no}`, w - marginX, h - marginY);
+      ctx.restore();
+
+      try {
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+      } catch {
+        resolve(imgSrc);
+      }
+    })();
+  });
+}
+
 /** 移动端专属扫码下载视图（游客手机扫码直接呈现下载页） */
 function MobilePostcardDownloadView() {
   const params = new URLSearchParams(window.location.search);
@@ -228,10 +303,11 @@ function MobilePostcardDownloadView() {
   const { name: imgName } = parseD1File(imgSrc);
 
   const [downloading, setDownloading] = useState(false);
+  const [watermarkedUrl, setWatermarkedUrl] = useState('');
   const [highlightCard, setHighlightCard] = useState(false);
   const [showWeChatGuide, setShowWeChatGuide] = useState(false);
 
-  // 页面加载时自动向大屏发送实时同步信标（只要扫码打开页面，大屏立即 +1，即使只长按保存也会生效）
+  // 页面加载时：向大屏发送实时同步信标，并预生成右下角微水印高清图
   useEffect(() => {
     try {
       fetch('https://ntfy.sh/shenshan-sky-sync-alkene', {
@@ -240,7 +316,12 @@ function MobilePostcardDownloadView() {
         body: JSON.stringify({ action: 'claim', no: no, time: Date.now() })
       }).catch(() => {});
     } catch {}
-  }, [no]);
+
+    (async () => {
+      const url = await generateSubtleWatermarkImage(imgSrc, no);
+      if (url) setWatermarkedUrl(url);
+    })();
+  }, [imgSrc, no]);
 
   const handleImgError = useCallback((e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const el = e.currentTarget;
@@ -275,19 +356,9 @@ function MobilePostcardDownloadView() {
         return;
       }
 
-      // 获取纯净原图的 Blob 对象（无任何水印）
-      let blob: Blob;
-      try {
-        const res = await fetch(imgSrc);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        blob = await res.blob();
-      } catch {
-        const alt = imgSrc.includes('/public/d1/')
-          ? imgSrc.replace('/public/d1/', '/d1/')
-          : (imgSrc.includes('/d1/') ? imgSrc.replace('/d1/', '/public/d1/') : imgSrc);
-        const res = await fetch(alt);
-        blob = await res.blob();
-      }
+      // 获取带微水印的高清图
+      const targetUrl = watermarkedUrl || await generateSubtleWatermarkImage(imgSrc, no);
+      const blob = dataURLtoBlob(targetUrl);
 
       const ext = (imgSrc.split('.').pop() || 'jpg').toLowerCase();
       const filename = `深汕气象天文馆_第${no}号观测者_${imgName || '星空'}.${ext}`;
@@ -295,11 +366,11 @@ function MobilePostcardDownloadView() {
       // 2. 现代手机浏览器 Web Share API（iOS Safari / 现代 Android Chrome 直接呼出系统「存储图像 / 保存到相册」）
       if (typeof navigator !== 'undefined' && navigator.canShare && typeof File !== 'undefined') {
         try {
-          const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+          const file = new File([blob], filename, { type: 'image/jpeg' });
           if (navigator.canShare({ files: [file] })) {
             await navigator.share({
               files: [file],
-              title: '深汕气象天文馆 宇宙星空原图',
+              title: '深汕气象天文馆 宇宙星空',
               text: `深汕气象天文馆 · 第 ${no} 号观测者专属原图`
             });
             return;
@@ -326,7 +397,7 @@ function MobilePostcardDownloadView() {
         setTimeout(() => setHighlightCard(false), 3500);
       }
     } catch (err) {
-      console.error('获取原图失败', err);
+      console.error('获取图片失败', err);
       setShowWeChatGuide(true);
       setHighlightCard(true);
       setTimeout(() => setHighlightCard(false), 3500);
@@ -357,10 +428,10 @@ function MobilePostcardDownloadView() {
         transform: highlightCard ? 'scale(1.02)' : 'scale(1)',
         marginBottom: '20px', position: 'relative'
       }}>
-        {/* 纯净原始图片展示区（无任何水印遮挡，保留全分辨率纯粹原图） */}
+        {/* 高清图片展示区（100%全分辨率原图，右下角雅致微弱水印） */}
         <div style={{ width: '100%', aspectRatio: '3/2', overflow: 'hidden', background: '#000', position: 'relative' }}>
           <img
-            src={imgSrc}
+            src={watermarkedUrl || imgSrc}
             onError={handleImgError}
             alt={imgName || "宇宙坐标原图"}
             style={{
@@ -368,7 +439,7 @@ function MobilePostcardDownloadView() {
               WebkitTouchCallout: 'default'
             }}
           />
-          {/* 右下角悬浮标签：长按图片保存纯净原图 */}
+          {/* 右下角悬浮标签：长按图片保存 */}
           <div style={{
             position: 'absolute', bottom: '10px', right: '10px',
             background: 'rgba(5, 7, 15, 0.75)', backdropFilter: 'blur(8px)',
@@ -376,7 +447,7 @@ function MobilePostcardDownloadView() {
             fontSize: '11px', color: '#ffd76a', border: '1px solid rgba(255,215,106,0.35)',
             pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '5px'
           }}>
-            <span>👆</span> 长按图片保存纯净原图
+            <span>👆</span> 长按图片保存到相册
           </div>
         </div>
 
@@ -396,7 +467,7 @@ function MobilePostcardDownloadView() {
           </div>
 
           <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.6', marginTop: '8px' }}>
-            “穿越浩瀚星河，带走一片属于你的天空。此高清纯净原图由深汕气象天文科普馆为您专属呈现。”
+            “穿越浩瀚星河，带走一片属于你的天空。此高清图片由深汕气象天文科普馆为您专属呈现。”
           </div>
         </div>
       </div>
@@ -413,7 +484,7 @@ function MobilePostcardDownloadView() {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
           }}
         >
-          <span>⤓</span> {downloading ? '正在获取高清原图...' : '保存纯净原图到手机'}
+          <span>⤓</span> {downloading ? '正在准备高清图片...' : '保存高清图片到手机'}
         </button>
         <p style={{ margin: 0, fontSize: '12px', color: 'rgba(255,255,255,0.5)', textAlign: 'center', letterSpacing: '0.04em' }}>
           提示：微信内或部分手机请直接长按上方图片保存到相册
@@ -443,11 +514,11 @@ function MobilePostcardDownloadView() {
           >
             <div style={{ fontSize: '36px', marginBottom: '10px' }}>👆</div>
             <h3 style={{ margin: '0 0 10px', fontSize: '18px', color: '#ffd76a', fontWeight: 600, letterSpacing: '0.04em' }}>
-              长按上方图片即可保存纯净原图
+              长按上方图片即可保存
             </h3>
             <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.85)', lineHeight: '1.6', margin: '0 0 14px' }}>
               受微信及手机安全限制，网页无法直接静默下载图片到相册。<br /><br />
-              请<strong style={{ color: '#ffd76a' }}>【长按上方图片】</strong>并在弹出的系统菜单中点击<strong style={{ color: '#ffd76a' }}>【保存到手机 / 存储图像】</strong>即可将无水印纯净原图存入手机相册！
+              请<strong style={{ color: '#ffd76a' }}>【长按上方图片】</strong>并在弹出的系统菜单中点击<strong style={{ color: '#ffd76a' }}>【保存到手机 / 存储图像】</strong>即可存入手机相册！
             </p>
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', marginBottom: '18px', background: 'rgba(255,255,255,0.06)', padding: '8px 12px', borderRadius: '8px' }}>
               💡 也可以点击右上角【···】选择【在浏览器打开】进行自动下载
