@@ -307,6 +307,7 @@ export default function D1Page() {
   const [selImg, setSelImg] = useState('');
   const [postcard, setPostcard] = useState<{ oid: string; date: string; no: string; catLabel: string } | null>(null);
   const [qrUrl, setQrUrl] = useState('');
+  const [qrTargetUrl, setQrTargetUrl] = useState('');
   const [serverHost, setServerHost] = useState<string>(() => {
     if (typeof window === 'undefined') return DEFAULT_ONLINE_URL;
     const stored = localStorage.getItem('SHENSHAN_SERVER_HOST');
@@ -316,6 +317,18 @@ export default function D1Page() {
     }
     return DEFAULT_ONLINE_URL;
   });
+
+  // 自动纠正旧版本缓存中可能存在的 github.com 仓库地址
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('SHENSHAN_SERVER_HOST');
+      if (stored && (stored.includes('github.com/') || !stored.startsWith('http'))) {
+        const fixed = normalizeServerUrl(stored);
+        localStorage.setItem('SHENSHAN_SERVER_HOST', fixed);
+        setServerHost(fixed);
+      }
+    } catch {}
+  }, []);
   const [showText, setShowText] = useState(false);
   const [spreadIn, setSpreadIn] = useState(false); // 4 张类型卡依次铺开
   const [galleryIn, setGalleryIn] = useState(false); // 图片弧形铺开
@@ -451,6 +464,7 @@ export default function D1Page() {
 
       // 二维码携带完整天体编号、图片路径与观测者序号，扫码直达专属下载界面（兼容 4G/5G 公网及局域网）
       const u = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}card=${selCat.key}&img=${encodeURIComponent(img)}&no=${observerNo}&oid=${oid}&date=${date}`;
+      setQrTargetUrl(u);
       const d = await QRCode.toDataURL(u, {
         width: 280,
         margin: 2,
@@ -759,6 +773,18 @@ export default function D1Page() {
                       [{serverHost.includes('github.io') ? 'GitHub公网' : (serverHost.startsWith('http') ? '4G公网/域名' : `IP:${serverHost.split(':')[0]}`)} ✎]
                     </span>
                   </div>
+
+                  {/* 目标链接展示，方便大屏直观检查与直接点击测试 */}
+                  {qrTargetUrl && (
+                    <div style={{
+                      maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      fontSize: '10px', color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginTop: '-2px'
+                    }}>
+                      目标: <a href={qrTargetUrl} target="_blank" rel="noreferrer" style={{ color: '#ffd76a', textDecoration: 'underline' }} title={`点击在新窗口测试打开：\n${qrTargetUrl}`}>
+                        {qrTargetUrl.replace(/^https?:\/\//, '')}
+                      </a>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
                     <button
