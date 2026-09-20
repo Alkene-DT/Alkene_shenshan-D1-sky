@@ -231,17 +231,35 @@ function MobilePostcardDownloadView() {
   const [highlightCard, setHighlightCard] = useState(false);
   const [showWeChatGuide, setShowWeChatGuide] = useState(false);
 
-  // 页面加载时自动预合成 Canvas 高清卡片
+  // 页面加载时自动预合成 Canvas 高清卡片，并向大屏发送实时同步信标
   useEffect(() => {
     (async () => {
       const url = await generatePostcardCanvas(imgSrc, oid, date, no, cat.title);
       if (url) setCompositeUrl(url);
     })();
+
+    // 游客手机扫码打开页面时，通知大屏该编号已被手机接引
+    try {
+      fetch('https://ntfy.sh/shenshan-sky-sync-alkene', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'claim', no: no, time: Date.now() })
+      }).catch(() => {});
+    } catch {}
   }, [imgSrc, oid, date, no, cat.title]);
 
   const handleDownload = async () => {
     setDownloading(true);
     try {
+      // 手机端点击保存时，再次向大屏发送保存成功信标
+      try {
+        fetch('https://ntfy.sh/shenshan-sky-sync-alkene', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'saved', no: no, time: Date.now() })
+        }).catch(() => {});
+      } catch {}
+
       const dataUrl = compositeUrl || await generatePostcardCanvas(imgSrc, oid, date, no, cat.title);
       if (!dataUrl) return;
 
@@ -504,15 +522,51 @@ export default function D1Page() {
   const resetIdle = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
+      setPostcard(prev => {
+        if (prev) commitAndAdvanceObserverNo();
+        return null;
+      });
       setState('idle');
       setSelectedIdx(null);
-      setPostcard(null);
       setSelImg('');
       setQrUrl('');
       setSpreadIn(false);
       setGalleryIn(false);
     }, IDLE_TIMEOUT_MS);
   }, []);
+
+  // 监听来自移动端手机扫码/下载的实时同步信标（手机一扫码/保存，大屏毫秒级自动推进序号）
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('https://ntfy.sh/shenshan-sky-sync-alkene/sse');
+      es.onmessage = (e) => {
+        try {
+          const raw = JSON.parse(e.data);
+          if (raw.event === 'message' && raw.message) {
+            const payload = typeof raw.message === 'string' ? JSON.parse(raw.message) : raw.message;
+            if (payload && (payload.action === 'claim' || payload.action === 'saved')) {
+              const claimedNo = String(payload.no).padStart(3, '0');
+              const currentNo = getCurrentObserverNo();
+              if (parseInt(claimedNo, 10) >= parseInt(currentNo, 10)) {
+                const nextNo = commitAndAdvanceObserverNo();
+                setDownloadSuccessTip(`🎉 手机已扫码带走第 ${claimedNo} 号！下一位观测者为第 ${nextNo} 号`);
+                setTimeout(() => setDownloadSuccessTip(''), 5000);
+                if (selImg) {
+                  pickImage(selImg, nextNo);
+                }
+              }
+            }
+          }
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('SSE 监听不可用', err);
+    }
+    return () => {
+      if (es) es.close();
+    };
+  }, [selImg, pickImage]);
 
   useEffect(() => {
     const onAct = () => resetIdle();
@@ -936,9 +990,9 @@ export default function D1Page() {
                         boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
                         display: 'flex', alignItems: 'center', gap: '4px'
                       }}
-                      title="手机扫码后点击，使观测者序号递增 +1"
+                      title="手机扫码后点击，使观测者序号递增 +1 进入下一位"
                     >
-                      <span>✓</span> 完成扫码带走
+                      <span>✓</span> 完成扫码（换下一位）
                     </button>
                     <button
                       onClick={() => { setPostcard(null); setSelImg(''); setQrUrl(''); setSelectedIdx(null); setDownloadSuccessTip(''); }}
