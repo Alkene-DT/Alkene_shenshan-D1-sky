@@ -655,39 +655,6 @@ export default function D1Page() {
     }, IDLE_TIMEOUT_MS);
   }, []);
 
-  // 监听来自移动端手机扫码/下载的实时同步信标（手机一扫码/保存，大屏毫秒级自动推进序号）
-  useEffect(() => {
-    let es: EventSource | null = null;
-    try {
-      es = new EventSource('https://ntfy.sh/shenshan-sky-sync-alkene/sse');
-      es.onmessage = (e) => {
-        try {
-          const raw = JSON.parse(e.data);
-          if (raw.event === 'message' && raw.message) {
-            const payload = typeof raw.message === 'string' ? JSON.parse(raw.message) : raw.message;
-            if (payload && (payload.action === 'claim' || payload.action === 'saved')) {
-              const claimedNo = String(payload.no).padStart(3, '0');
-              const currentNo = getCurrentObserverNo();
-              if (parseInt(claimedNo, 10) >= parseInt(currentNo, 10)) {
-                const nextNo = commitAndAdvanceObserverNo();
-                setDownloadSuccessTip(`🎉 手机已扫码带走第 ${claimedNo} 号！下一位观测者为第 ${nextNo} 号`);
-                setTimeout(() => setDownloadSuccessTip(''), 5000);
-                if (selImg) {
-                  pickImage(selImg, nextNo);
-                }
-              }
-            }
-          }
-        } catch {}
-      };
-    } catch (err) {
-      console.warn('SSE 监听不可用', err);
-    }
-    return () => {
-      if (es) es.close();
-    };
-  }, [selImg, pickImage]);
-
   useEffect(() => {
     const onAct = () => resetIdle();
     window.addEventListener('pointerdown', onAct);
@@ -804,6 +771,39 @@ export default function D1Page() {
     setTimeout(() => setDownloadSuccessTip(''), 4000);
     pickImage(selImg, nextNo);
   }, [postcard, selImg, pickImage]);
+
+  // 监听来自移动端手机扫码/下载的实时同步信标（手机一扫码/保存，大屏毫秒级自动推进序号）
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('https://ntfy.sh/shenshan-sky-sync-alkene/sse');
+      es.onmessage = (e) => {
+        try {
+          const raw = JSON.parse(e.data);
+          if (raw.event === 'message' && raw.message) {
+            const payload = typeof raw.message === 'string' ? JSON.parse(raw.message) : raw.message;
+            if (payload && (payload.action === 'claim' || payload.action === 'saved')) {
+              const claimedNo = String(payload.no).padStart(3, '0');
+              const currentNo = getCurrentObserverNo();
+              if (parseInt(claimedNo, 10) >= parseInt(currentNo, 10)) {
+                const nextNo = commitAndAdvanceObserverNo();
+                setDownloadSuccessTip(`🎉 手机已扫码带走第 ${claimedNo} 号！下一位观测者为第 ${nextNo} 号`);
+                setTimeout(() => setDownloadSuccessTip(''), 5000);
+                if (selImg) {
+                  pickImage(selImg, nextNo);
+                }
+              }
+            }
+          }
+        } catch {}
+      };
+    } catch (err) {
+      console.warn('SSE 监听不可用', err);
+    }
+    return () => {
+      if (es) es.close();
+    };
+  }, [selImg, pickImage]);
 
   const flat = images.flat();
   const curA = flat[showA ? imgIdx : (imgIdx + 1) % Math.max(1, flat.length)] ?? '';
