@@ -61,13 +61,17 @@ const SEQ_STORAGE_KEY = 'SHENSHAN_D1_OBSERVER_SEQ';
 // 扫码服务默认线上公网地址（已上线的 GitHub Pages 专属地址，手机 4G/5G 随时随地可直接扫码）
 const DEFAULT_ONLINE_URL = 'https://alkene-dt.github.io/Alkene_shenshan-D1-sky/';
 
-/** 规范化扫码服务地址：自动纠正 github.com 仓库源码地址为真正的 github.io 网站地址 */
+/** 规范化扫码服务地址：自动纠正 github.com 或受保护的 vercel 地址为真正公开免登录的 github.io 网站地址 */
 function normalizeServerUrl(raw: string): string {
   let u = (raw || '').trim();
   if (!u) return DEFAULT_ONLINE_URL;
   // 自动将用户误填的 github.com 仓库地址转换为真正的 github.io 网站地址
   if (u.includes('github.com/')) {
     u = u.replace(/https?:\/\/github\.com\/([^\/]+)\/([^\/\?#]+).*/i, 'https://$1.github.io/$2/');
+  }
+  // 鉴于 Vercel 团队版强制需要登录保护，自动重定向至已上线的免登录 GitHub Pages 线上地址
+  if (u.includes('vercel.app')) {
+    return DEFAULT_ONLINE_URL;
   }
   if (u.startsWith('http://') || u.startsWith('https://')) {
     return u.endsWith('/') ? u : `${u}/`;
@@ -318,11 +322,11 @@ export default function D1Page() {
     return DEFAULT_ONLINE_URL;
   });
 
-  // 自动纠正旧版本缓存中可能存在的 github.com 仓库地址
+  // 自动纠正旧版本缓存中可能存在的 github.com 仓库地址或受保护的 vercel 地址
   useEffect(() => {
     try {
       const stored = localStorage.getItem('SHENSHAN_SERVER_HOST');
-      if (stored && (stored.includes('github.com/') || !stored.startsWith('http'))) {
+      if (stored && (stored.includes('github.com/') || stored.includes('vercel.app') || !stored.startsWith('http'))) {
         const fixed = normalizeServerUrl(stored);
         localStorage.setItem('SHENSHAN_SERVER_HOST', fixed);
         setServerHost(fixed);
