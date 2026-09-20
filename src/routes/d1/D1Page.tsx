@@ -58,8 +58,23 @@ function parseD1File(file: string): { year?: number; name: string } {
 
 // 唯一观测者序号存储 key
 const SEQ_STORAGE_KEY = 'SHENSHAN_D1_OBSERVER_SEQ';
-// 扫码服务默认地址（支持 4G/5G 公网域名如 https://xxx 或局域网 IP 如 10.88.8.21:4185）
-const DEFAULT_LAN_HOST = '10.88.8.21:4185';
+// 扫码服务默认线上公网地址（已上线的 GitHub Pages 专属地址，手机 4G/5G 随时随地可直接扫码）
+const DEFAULT_ONLINE_URL = 'https://alkene-dt.github.io/Alkene_shenshan-D1-sky/';
+
+/** 规范化扫码服务地址：自动纠正 github.com 仓库源码地址为真正的 github.io 网站地址 */
+function normalizeServerUrl(raw: string): string {
+  let u = (raw || '').trim();
+  if (!u) return DEFAULT_ONLINE_URL;
+  // 自动将用户误填的 github.com 仓库地址转换为真正的 github.io 网站地址
+  if (u.includes('github.com/')) {
+    u = u.replace(/https?:\/\/github\.com\/([^\/]+)\/([^\/\?#]+).*/i, 'https://$1.github.io/$2/');
+  }
+  if (u.startsWith('http://') || u.startsWith('https://')) {
+    return u.endsWith('/') ? u : `${u}/`;
+  }
+  return `http://${u}/`;
+}
+
 let _inMemorySeq = 1;
 
 /** 获取当前待分配的观测者序号（只读，不递增。初始默认 001） */
@@ -293,13 +308,13 @@ export default function D1Page() {
   const [postcard, setPostcard] = useState<{ oid: string; date: string; no: string; catLabel: string } | null>(null);
   const [qrUrl, setQrUrl] = useState('');
   const [serverHost, setServerHost] = useState<string>(() => {
-    if (typeof window === 'undefined') return DEFAULT_LAN_HOST;
+    if (typeof window === 'undefined') return DEFAULT_ONLINE_URL;
     const stored = localStorage.getItem('SHENSHAN_SERVER_HOST');
-    if (stored) return stored;
+    if (stored) return normalizeServerUrl(stored);
     if (window.location.protocol.startsWith('http') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      return window.location.host;
+      return window.location.origin + window.location.pathname;
     }
-    return DEFAULT_LAN_HOST;
+    return DEFAULT_ONLINE_URL;
   });
   const [showText, setShowText] = useState(false);
   const [spreadIn, setSpreadIn] = useState(false); // 4 张类型卡依次铺开
@@ -429,15 +444,10 @@ export default function D1Page() {
       const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const isHttpRemote = window.location.protocol.startsWith('http') && !isLocalHost;
 
-      const hostOrUrl = localStorage.getItem('SHENSHAN_SERVER_HOST') || serverHost || DEFAULT_LAN_HOST;
-      let baseUrl = '';
-      if (hostOrUrl.startsWith('http://') || hostOrUrl.startsWith('https://')) {
-        baseUrl = hostOrUrl.endsWith('/') ? hostOrUrl : `${hostOrUrl}/`;
-      } else if (isHttpRemote) {
-        baseUrl = `${location.origin}${location.pathname}`;
-      } else {
-        baseUrl = `http://${hostOrUrl}/`;
-      }
+      const hostOrUrl = localStorage.getItem('SHENSHAN_SERVER_HOST') || serverHost || DEFAULT_ONLINE_URL;
+      const baseUrl = isHttpRemote
+        ? `${location.origin}${location.pathname}`
+        : normalizeServerUrl(hostOrUrl);
 
       // 二维码携带完整天体编号、图片路径与观测者序号，扫码直达专属下载界面（兼容 4G/5G 公网及局域网）
       const u = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}card=${selCat.key}&img=${encodeURIComponent(img)}&no=${observerNo}&oid=${oid}&date=${date}`;
@@ -726,19 +736,27 @@ export default function D1Page() {
                     <span
                       onClick={() => {
                         const next = prompt(
-                          '【手机扫码下载地址设置】\n• 游客使用 4G/5G 手机网络：请填入公网网址（如 https://your-domain.com/）\n• 游客连接展厅 WiFi：请填入电脑局域网 IP（如 10.88.8.21:4185）\n\n当前配置：',
+                          '【手机 4G/5G 扫码下载地址设置】\n\n' +
+                          '• 当前已上线 GitHub Pages 网站：\n' +
+                          '  https://alkene-dt.github.io/Alkene_shenshan-D1-sky/\n\n' +
+                          '• 若使用 Vercel，请输入：\n' +
+                          '  https://your-project.vercel.app/\n\n' +
+                          '• 若连接展厅 WiFi，请输入电脑局域网 IP：\n' +
+                          '  10.88.8.21:4185\n\n' +
+                          '当前配置：',
                           serverHost
                         );
                         if (next && next.trim()) {
-                          localStorage.setItem('SHENSHAN_SERVER_HOST', next.trim());
-                          setServerHost(next.trim());
+                          const clean = normalizeServerUrl(next.trim());
+                          localStorage.setItem('SHENSHAN_SERVER_HOST', clean);
+                          setServerHost(clean);
                           if (selImg) pickImage(selImg);
                         }
                       }}
                       title="点击可修改 4G/5G 公网网址或展厅局域网 IP"
                       style={{ color: '#c9a96e', cursor: 'pointer', textDecoration: 'underline', opacity: 0.9 }}
                     >
-                      [{serverHost.startsWith('http') ? '4G公网/域名' : `IP:${serverHost.split(':')[0]}`} ✎]
+                      [{serverHost.includes('github.io') ? 'GitHub公网' : (serverHost.startsWith('http') ? '4G公网/域名' : `IP:${serverHost.split(':')[0]}`)} ✎]
                     </span>
                   </div>
 
