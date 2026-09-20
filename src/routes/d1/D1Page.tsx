@@ -289,9 +289,23 @@ async function generateSubtleWatermarkImage(imgSrc: string, no: string): Promise
   });
 }
 
+function getCombinedParams(): URLSearchParams {
+  if (typeof window === 'undefined') return new URLSearchParams();
+  const s = window.location.search;
+  if (s && (s.includes('card=') || s.includes('img='))) {
+    return new URLSearchParams(s);
+  }
+  const h = window.location.hash;
+  const qIdx = h.indexOf('?');
+  if (qIdx !== -1) {
+    return new URLSearchParams(h.slice(qIdx));
+  }
+  return new URLSearchParams(s || '');
+}
+
 /** 移动端专属扫码下载视图（游客手机扫码直接呈现下载页） */
 function MobilePostcardDownloadView() {
-  const params = new URLSearchParams(window.location.search);
+  const params = getCombinedParams();
   const card = params.get('card') || 'star';
   const rawImg = params.get('img') || '';
   const no = params.get('no') || '001';
@@ -542,8 +556,8 @@ function MobilePostcardDownloadView() {
 
 export default function D1Page() {
   // 检查是否为手机扫码进入的专属下载页
-  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-  const isMobileDownload = searchParams && (searchParams.has('card') || searchParams.has('img') || searchParams.has('download'));
+  const searchParams = getCombinedParams();
+  const isMobileDownload = searchParams.has('card') || searchParams.has('img') || searchParams.has('download');
   if (isMobileDownload) {
     return <MobilePostcardDownloadView />;
   }
