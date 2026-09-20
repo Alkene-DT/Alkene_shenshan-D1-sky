@@ -1073,54 +1073,29 @@ export default function D1Page() {
                     </span>
                   </div>
 
-                  {/* 目标链接展示，方便大屏直观检查与直接点击测试 */}
-                  {qrTargetUrl && (
-                    <div style={{
-                      maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      fontSize: '10px', color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginTop: '-2px'
-                    }}>
-                      目标: <a href={qrTargetUrl} target="_blank" rel="noreferrer" style={{ color: '#ffd76a', textDecoration: 'underline' }} title={`点击在新窗口测试打开：\n${qrTargetUrl}`}>
-                        {qrTargetUrl.replace(/^https?:\/\//, '')}
-                      </a>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
                     <button
                       onClick={handleDownloadPostcard}
                       style={{
-                        padding: '7px 14px', borderRadius: '9px',
+                        padding: '8px 16px', borderRadius: '10px',
                         border: '1px solid rgba(201,169,110,0.6)',
                         background: 'linear-gradient(135deg, #c9a96e, #e8c36a)',
                         color: '#0a0d1a', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
                         boxShadow: '0 4px 14px rgba(201,169,110,0.3)',
-                        display: 'flex', alignItems: 'center', gap: '4px'
+                        display: 'flex', alignItems: 'center', gap: '5px'
                       }}
                       title="下载到本机并使观测者序号 +1"
                     >
                       <span>⤓</span> 下载到本机
                     </button>
                     <button
-                      onClick={handleConfirmMobileScan}
-                      style={{
-                        padding: '7px 12px', borderRadius: '9px',
-                        border: '1px solid rgba(140,200,255,0.4)',
-                        background: 'rgba(30,50,90,0.7)',
-                        color: '#d6e8ff', fontSize: '13px', fontWeight: 500, cursor: 'pointer',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                        display: 'flex', alignItems: 'center', gap: '4px'
-                      }}
-                      title="手机扫码后点击，使观测者序号递增 +1 进入下一位"
-                    >
-                      <span>✓</span> 完成扫码（换下一位）
-                    </button>
-                    <button
                       onClick={() => { setPostcard(null); setSelImg(''); setQrUrl(''); setSelectedIdx(null); setDownloadSuccessTip(''); }}
                       style={{
-                        padding: '7px 12px', borderRadius: '9px',
+                        padding: '8px 16px', borderRadius: '10px',
                         border: '1px solid rgba(255,255,255,0.22)',
                         background: 'rgba(255,255,255,0.08)',
-                        color: '#f0f3fa', fontSize: '13px', cursor: 'pointer'
+                        color: '#f0f3fa', fontSize: '13px', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '4px'
                       }}
                     >
                       ⟲ 重新选牌
