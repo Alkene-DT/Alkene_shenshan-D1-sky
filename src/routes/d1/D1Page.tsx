@@ -651,7 +651,35 @@ export default function D1Page() {
                       <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.06em' }}>{postcard.oid} / {postcard.date}</span>
                     </div>
                     <div style={{ fontSize: '16px', fontWeight: 600, color: '#f4f7ff', letterSpacing: '0.04em', marginTop: '4px' }}>
-                      你是 深汕气象天文馆 第 <span style={{ color: '#ffd76a', fontSize: '22px', fontWeight: 700, padding: '0 2px' }}>{postcard.no}</span> 号观测者
+                      你是 深汕气象天文馆 第{' '}
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const next = prompt(
+                            '【设置/重置观测者序号】\n请输入起始序号（输入 1 将重置为 001）：',
+                            String(parseInt(postcard.no, 10) || 1)
+                          );
+                          if (next && next.trim()) {
+                            const num = parseInt(next.trim(), 10);
+                            if (!isNaN(num) && num >= 1) {
+                              const pad = String(num).padStart(3, '0');
+                              localStorage.setItem(SEQ_STORAGE_KEY, String(num));
+                              pickImage(selImg, pad);
+                              setDownloadSuccessTip(`观测者序号已成功设置为第 ${pad} 号`);
+                              setTimeout(() => setDownloadSuccessTip(''), 3000);
+                            }
+                          }
+                        }}
+                        title="点击可修改或重置观测者序号（如重置为 001）"
+                        style={{
+                          color: '#ffd76a', fontSize: '22px', fontWeight: 700, padding: '0 2px',
+                          cursor: 'pointer', textDecoration: 'underline dotted',
+                          transition: 'color 0.2s'
+                        }}
+                      >
+                        {postcard.no}
+                      </span>{' '}
+                      号观测者
                     </div>
                   </div>
                 </div>
